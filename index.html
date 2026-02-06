@@ -199,7 +199,17 @@ const lots = [
   {id:212,title:'Участок #212',district:'Залегощенский',areaHa:39,priceRub:6200000,landType:'пастбище',vri:'выпас',category:'земли с/х',riskLevel:'med',riskFactors:['слабая почва','подъезд через грунт'],hasDocs:true,isAuction:false,soilScore:'low',agroPotential:'low',distanceToRoadKm:5.4,distanceToPowerKm:10.6,distanceToWaterKm:2.7,distanceToElevatorKm:22,unusedSignal:false,unusedConfidence:35,marketDeltaPct:-3,geometry:[[52.50,36.78],[52.54,36.87],[52.48,36.93],[52.42,36.86],[52.45,36.78]]}
 ];
 lots.forEach(l=>l.pricePerHaRub=Math.round(l.priceRub/l.areaHa));
-const parcels = {type:'FeatureCollection',features: lots.map(l=>({type:'Feature',properties:{id:l.id},geometry:{type:'Polygon',coordinates:[[...l.geometry.map(p=>[p[1],p[0]]),[l.geometry[0][1],l.geometry[0][0]]]}}}))};
+const parcels = {
+  type:'FeatureCollection',
+  features: lots.map(l => ({
+    type:'Feature',
+    properties:{id:l.id},
+    geometry:{
+      type:'Polygon',
+      coordinates:[[...l.geometry.map(p=>[p[1],p[0]]), [l.geometry[0][1], l.geometry[0][0]]]]
+    }
+  }))
+};
 
 const poiLayerData = {type:'FeatureCollection',features:[
   {type:'Feature',properties:{name:'Элеватор Орёл'},geometry:{type:'Point',coordinates:[36.08,52.96]}},
