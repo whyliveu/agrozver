@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgroZver — Карта + каталог</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#f5f3ff',100:'#ede9fe',200:'#ddd6fe',300:'#c4b5fd',400:'#a78bfa',500:'#8b5cf6',600:'#7c3aed',700:'#6d28d9',800:'#5b21b6',900:'#4c1d95'
+            }
+          },
+          boxShadow: { soft: '0 8px 26px rgba(76,29,149,.10)' }
+        }
+      }
+    }
+  </script>
+  <style>
+    #map { height: 100%; width: 100%; }
+    .leaflet-container { font-family: inherit; }
+    .chip-active { background:#7c3aed;color:white;border-color:#7c3aed; }
+    .badge { font-size:11px;padding:.1rem .45rem;border-radius:999px;background:#ede9fe;border:1px solid #c4b5fd;color:#5b21b6; }
+    .status-ok{background:#dcfce7;color:#166534}.status-partial{background:#fef3c7;color:#92400e}.status-unknown{background:#e2e8f0;color:#334155}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+  <div class="min-h-screen flex flex-col">
+    <header class="sticky top-0 z-[1000] bg-white/95 backdrop-blur border-b border-slate-200">
+      <div class="max-w-[1600px] mx-auto px-3 sm:px-4 py-3">
+        <div class="flex flex-col lg:flex-row gap-3 lg:items-center">
+          <div class="flex items-center gap-2 shrink-0">
+            <div class="h-9 w-9 rounded-xl bg-primary-600 text-white grid place-items-center font-black">A</div>
+            <p class="font-semibold text-lg">AgroZver</p>
+          </div>
+          <input class="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-500" placeholder="Орловская область: адрес / кадастр / координаты" />
+          <div class="flex items-center gap-2 overflow-x-auto">
+            <button class="px-3 py-2 rounded-lg text-sm bg-primary-600 text-white hover:bg-primary-700">Разместить</button>
+            <button class="px-3 py-2 rounded-lg text-sm border border-slate-300 hover:bg-slate-50">Избранное</button>
+            <button class="px-3 py-2 rounded-lg text-sm border border-slate-300 hover:bg-slate-50">Войти</button>
+            <span class="px-2.5 py-1 rounded-full text-xs bg-primary-700 text-white border border-primary-700">PRO</span>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-2 overflow-x-auto pb-1" id="quickChips"></div>
+      </div>
+    </header>
+
+    <main class="flex-1 max-w-[1600px] mx-auto w-full px-3 sm:px-4 py-4">
+      <div class="md:hidden mb-3 flex gap-2">
+        <button data-mobile-tab="map" class="mobile-tab flex-1 rounded-xl bg-primary-600 text-white py-2.5 text-sm">Карта</button>
+        <button data-mobile-tab="list" class="mobile-tab flex-1 rounded-xl bg-white border border-slate-300 py-2.5 text-sm">Список</button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 h-[calc(100vh-170px)]">
+        <section id="mapPane" class="bg-white border border-slate-200 rounded-2xl shadow-soft overflow-hidden flex flex-col min-h-[65vh]">
+          <div class="p-3 border-b border-slate-200 flex flex-wrap gap-2 items-center">
+            <div class="inline-flex rounded-lg bg-slate-100 p-1">
+              <button data-basemap="scheme" class="basemap-btn px-3 py-1 text-xs rounded bg-white shadow">Схема</button>
+              <button data-basemap="sat" class="basemap-btn px-3 py-1 text-xs rounded text-slate-600">Спутник</button>
+            </div>
+            <button class="px-3 py-1.5 text-xs rounded-lg border border-slate-300 hover:bg-slate-50">Рисовать область</button>
+            <button class="px-3 py-1.5 text-xs rounded-lg border border-slate-300 hover:bg-slate-50">Измерить</button>
+            <button class="px-3 py-1.5 text-xs rounded-lg border border-slate-300 hover:bg-slate-50">Моя точка</button>
+            <div class="relative ml-auto">
+              <button id="layersBtn" class="px-3 py-1.5 text-xs rounded-lg border border-slate-300 hover:bg-slate-50">Слои ▾</button>
+              <div id="layersPopover" class="hidden absolute right-0 top-full mt-2 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-soft z-[1001]">
+                <div id="layersList" class="space-y-2 text-sm"></div>
+              </div>
+            </div>
+          </div>
+          <div class="relative flex-1">
+            <div id="map"></div>
+            <div id="miniCard" class="hidden absolute left-3 bottom-3 z-[800] max-w-sm rounded-xl border border-primary-200 bg-white/95 p-3 shadow-soft">
+              <button id="clearSelection" class="absolute top-2 right-2 text-xs text-slate-500 hover:text-slate-700">✕</button>
+              <p id="miniTitle" class="font-semibold text-sm pr-6"></p>
+              <p id="miniMeta" class="text-xs text-slate-600 mt-1"></p>
+              <div class="mt-3 flex gap-2">
+                <button id="openDeepCheck" class="px-3 py-1.5 rounded-lg text-xs bg-primary-600 text-white hover:bg-primary-700">Deep Check</button>
+                <button class="px-3 py-1.5 rounded-lg text-xs border border-slate-300">Открыть карточку</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="listPane" class="bg-white border border-slate-200 rounded-2xl shadow-soft overflow-hidden flex flex-col">
+          <div class="p-3 border-b border-slate-200 space-y-2">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-2">
+              <p class="text-xs font-semibold text-slate-700">Последние проверки</p>
+              <ul id="historyList" class="mt-1 text-xs space-y-1 text-slate-600"><li>Пока пусто</li></ul>
+            </div>
+            <div class="flex flex-wrap gap-2 items-center">
+              <p id="foundCount" class="text-sm font-semibold">Найдено: 0</p>
+              <select id="sortSelect" class="ml-auto rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
+                <option value="relevance">Релевантность</option>
+                <option value="price">Цена</option>
+                <option value="area">Площадь</option>
+                <option value="risk">Риск</option>
+              </select>
+              <div class="inline-flex rounded-lg bg-slate-100 p-1">
+                <button data-view="list" class="view-btn px-2.5 py-1 text-xs rounded bg-white shadow">Список</button>
+                <button data-view="grid" class="view-btn px-2.5 py-1 text-xs rounded text-slate-600">Плитка</button>
+              </div>
+            </div>
+          </div>
+          <div id="lotsWrap" class="p-3 overflow-auto space-y-3"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="overlay" class="fixed inset-0 bg-black/40 hidden z-[1200]"></div>
+
+  <aside id="filtersDrawer" class="fixed z-[1300] bg-white transition-transform duration-300 md:top-0 md:right-0 md:h-full md:w-[380px] md:border-l md:border-slate-200 md:translate-x-full bottom-0 left-0 right-0 h-[84vh] rounded-t-2xl border-t border-slate-200 translate-y-full">
+    <div class="p-4 border-b border-slate-200 flex items-center justify-between">
+      <h2 class="font-semibold">Фильтры</h2><button id="closeDrawer">✕</button>
+    </div>
+    <div class="p-4 space-y-4 text-sm h-[calc(100%-132px)] overflow-auto">
+      <div class="grid grid-cols-2 gap-2">
+        <label>Цена от<input id="fPriceMin" type="number" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"></label>
+        <label>Цена до<input id="fPriceMax" type="number" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"></label>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <label>Площадь от<input id="fAreaMin" type="number" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"></label>
+        <label>Площадь до<input id="fAreaMax" type="number" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"></label>
+      </div>
+      <div>
+        <p class="font-medium mb-1">Тип</p>
+        <label class="block"><input type="checkbox" class="fType" value="пашня"> пашня</label>
+        <label class="block"><input type="checkbox" class="fType" value="пастбище"> пастбище</label>
+        <label class="block"><input type="checkbox" class="fType" value="сенокос"> сенокос</label>
+      </div>
+      <div>
+        <p class="font-medium mb-1">Риск</p>
+        <label class="block"><input type="checkbox" class="fRisk" value="low"> low</label>
+        <label class="block"><input type="checkbox" class="fRisk" value="med"> med</label>
+        <label class="block"><input type="checkbox" class="fRisk" value="high"> high</label>
+      </div>
+      <label class="block"><input id="fDocs" type="checkbox"> Только документы</label>
+      <label class="block"><input id="fAuction" type="checkbox"> Только торги</label>
+      <label>До дороги
+        <select id="fRoad" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"><option value="any">любое</option><option value="1">&lt;1км</option><option value="5">&lt;5км</option></select>
+      </label>
+      <label>До подстанции
+        <select id="fPower" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"><option value="any">любое</option><option value="10">&lt;10км</option></select>
+      </label>
+      <label>До воды
+        <select id="fWater" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"><option value="any">любое</option><option value="1">&lt;1км</option><option value="3">&lt;3км</option></select>
+      </label>
+    </div>
+    <div class="absolute bottom-0 inset-x-0 p-4 border-t border-slate-200 bg-white flex gap-2">
+      <button id="resetFilters" class="flex-1 rounded-lg border border-slate-300 py-2">Сброс</button>
+      <button id="applyFilters" class="flex-1 rounded-lg bg-primary-600 text-white py-2">Применить</button>
+    </div>
+  </aside>
+
+  <aside id="deepPanel" class="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white border-l border-slate-200 shadow-2xl z-[1400] translate-x-full transition-transform duration-300">
+    <div class="p-4 border-b border-slate-200 flex items-center justify-between">
+      <h2 class="font-semibold">Deep Check</h2><button id="closeDeep">✕</button>
+    </div>
+    <div class="p-4 overflow-auto h-[calc(100%-73px)]">
+      <div id="deepLoading" class="hidden">
+        <p class="text-sm mb-2">Собираем сигналы и документы...</p>
+        <div class="h-2 bg-slate-200 rounded-full overflow-hidden"><div id="deepBar" class="h-full bg-primary-600 w-0 transition-all duration-500"></div></div>
+      </div>
+      <div id="deepContent" class="hidden">
+        <div class="inline-flex rounded-lg bg-slate-100 p-1 mb-3">
+          <button data-deep-tab="data" class="deep-tab px-3 py-1 text-xs rounded bg-white shadow">Собранные данные</button>
+          <button data-deep-tab="score" class="deep-tab px-3 py-1 text-xs rounded text-slate-600">Скоринг</button>
+        </div>
+        <div id="deepDataTab" class="space-y-2"></div>
+        <div id="deepScoreTab" class="hidden space-y-3"></div>
+      </div>
+    </div>
+  </aside>
+
+<script>
+const quickDefs = [
+  {key:'price',label:'Цена',popover:true}, {key:'area',label:'Площадь',popover:true}, {key:'type',label:'Тип'}, {key:'docs',label:'Документы'},
+  {key:'riskLow',label:'Риск (низкий)'}, {key:'auction',label:'Торги'}, {key:'road',label:'Дорога'}, {key:'power',label:'Электричество'}, {key:'water',label:'Вода'}
+];
+const districts = ['Орловский','Мценский','Ливенский','Кромской','Болховский','Знаменский','Хотынецкий','Свердловский','Покровский','Урицкий','Дмитровский','Сосковский','Троснянский','Залегощенский'];
+const lots = [
+  {id:201,title:'Участок #201',district:'Орловский',areaHa:58,priceRub:11200000,landType:'пашня',vri:'с/х производство',category:'земли с/х',riskLevel:'low',riskFactors:['чистый кадастр','ровный контур','близко к дороге'],hasDocs:true,isAuction:true,soilScore:'high',agroPotential:'high',distanceToRoadKm:1.1,distanceToPowerKm:6.1,distanceToWaterKm:2.4,distanceToElevatorKm:13,unusedSignal:false,unusedConfidence:9,marketDeltaPct:-8,geometry:[[52.93,36.00],[52.97,36.08],[52.93,36.15],[52.88,36.09],[52.90,36.01]]},
+  {id:202,title:'Участок #202',district:'Мценский',areaHa:41,priceRub:6900000,landType:'сенокос',vri:'сенокошение',category:'земли с/х',riskLevel:'med',riskFactors:['подтопление весной','узкий подъезд'],hasDocs:true,isAuction:false,soilScore:'med',agroPotential:'med',distanceToRoadKm:3.5,distanceToPowerKm:9.8,distanceToWaterKm:1.0,distanceToElevatorKm:21,unusedSignal:true,unusedConfidence:61,marketDeltaPct:-4,geometry:[[53.19,36.38],[53.22,36.46],[53.16,36.53],[53.10,36.46],[53.13,36.37]]},
+  {id:203,title:'Участок #203',district:'Ливенский',areaHa:92,priceRub:19300000,landType:'пашня',vri:'растениеводство',category:'земли с/х',riskLevel:'low',riskFactors:['сильная почва','удобная логистика'],hasDocs:true,isAuction:true,soilScore:'high',agroPotential:'high',distanceToRoadKm:0.8,distanceToPowerKm:4.5,distanceToWaterKm:2.8,distanceToElevatorKm:8,unusedSignal:false,unusedConfidence:6,marketDeltaPct:-11,geometry:[[52.58,37.08],[52.63,37.17],[52.56,37.24],[52.49,37.18],[52.52,37.09]]},
+  {id:204,title:'Участок #204',district:'Болховский',areaHa:36,priceRub:5700000,landType:'пастбище',vri:'выпас скота',category:'земли с/х',riskLevel:'high',riskFactors:['сложный рельеф','удаленность от ЛЭП'],hasDocs:false,isAuction:false,soilScore:'low',agroPotential:'low',distanceToRoadKm:8.2,distanceToPowerKm:14.5,distanceToWaterKm:4.0,distanceToElevatorKm:30,unusedSignal:true,unusedConfidence:82,marketDeltaPct:-18,geometry:[[53.31,35.58],[53.35,35.67],[53.29,35.74],[53.22,35.69],[53.25,35.59]]},
+  {id:205,title:'Участок #205',district:'Кромской',areaHa:54,priceRub:9800000,landType:'пашня',vri:'с/х производство',category:'земли с/х',riskLevel:'med',riskFactors:['ограничения ЛЭП'],hasDocs:true,isAuction:true,soilScore:'med',agroPotential:'med',distanceToRoadKm:2.4,distanceToPowerKm:5.8,distanceToWaterKm:1.8,distanceToElevatorKm:14,unusedSignal:false,unusedConfidence:24,marketDeltaPct:-7,geometry:[[52.77,35.86],[52.82,35.95],[52.75,36.01],[52.69,35.96],[52.72,35.87]]},
+  {id:206,title:'Участок #206',district:'Хотынецкий',areaHa:73,priceRub:14200000,landType:'пашня',vri:'растениеводство',category:'земли с/х',riskLevel:'low',riskFactors:['дорога <2км','сильная почва'],hasDocs:true,isAuction:false,soilScore:'high',agroPotential:'high',distanceToRoadKm:1.7,distanceToPowerKm:3.3,distanceToWaterKm:2.5,distanceToElevatorKm:10,unusedSignal:false,unusedConfidence:12,marketDeltaPct:-9,geometry:[[53.03,35.17],[53.08,35.25],[53.01,35.31],[52.95,35.26],[52.97,35.17]]},
+  {id:207,title:'Участок #207',district:'Покровский',areaHa:66,priceRub:12400000,landType:'пастбище',vri:'выпас',category:'земли с/х',riskLevel:'med',riskFactors:['средний NDVI тренд'],hasDocs:false,isAuction:true,soilScore:'med',agroPotential:'med',distanceToRoadKm:4.9,distanceToPowerKm:8.2,distanceToWaterKm:2.2,distanceToElevatorKm:17,unusedSignal:true,unusedConfidence:48,marketDeltaPct:-5,geometry:[[52.89,36.72],[52.94,36.81],[52.87,36.86],[52.81,36.80],[52.84,36.72]]},
+  {id:208,title:'Участок #208',district:'Урицкий',areaHa:44,priceRub:7700000,landType:'сенокос',vri:'сенокошение',category:'земли с/х',riskLevel:'high',riskFactors:['переувлажнение','слабая инфраструктура'],hasDocs:false,isAuction:false,soilScore:'low',agroPotential:'low',distanceToRoadKm:7.2,distanceToPowerKm:13,distanceToWaterKm:0.7,distanceToElevatorKm:27,unusedSignal:true,unusedConfidence:75,marketDeltaPct:-16,geometry:[[52.98,35.63],[53.02,35.71],[52.95,35.78],[52.89,35.72],[52.92,35.63]]},
+  {id:209,title:'Участок #209',district:'Дмитровский',areaHa:81,priceRub:16100000,landType:'пашня',vri:'с/х производство',category:'земли с/х',riskLevel:'low',riskFactors:['подстанция рядом','документы полные'],hasDocs:true,isAuction:true,soilScore:'high',agroPotential:'high',distanceToRoadKm:1.0,distanceToPowerKm:2.1,distanceToWaterKm:2.9,distanceToElevatorKm:9,unusedSignal:false,unusedConfidence:5,marketDeltaPct:-12,geometry:[[53.29,36.14],[53.34,36.22],[53.28,36.30],[53.21,36.23],[53.24,36.14]]},
+  {id:210,title:'Участок #210',district:'Сосковский',areaHa:52,priceRub:9300000,landType:'пашня',vri:'растениеводство',category:'земли с/х',riskLevel:'med',riskFactors:['частично зарос'],hasDocs:true,isAuction:false,soilScore:'med',agroPotential:'med',distanceToRoadKm:2.9,distanceToPowerKm:9.0,distanceToWaterKm:3.3,distanceToElevatorKm:15,unusedSignal:true,unusedConfidence:53,marketDeltaPct:-6,geometry:[[53.17,35.94],[53.22,36.02],[53.16,36.09],[53.09,36.03],[53.12,35.94]]},
+  {id:211,title:'Участок #211',district:'Троснянский',areaHa:61,priceRub:11700000,landType:'пашня',vri:'с/х производство',category:'земли с/х',riskLevel:'low',riskFactors:['выше рынка ликвидность'],hasDocs:true,isAuction:true,soilScore:'high',agroPotential:'high',distanceToRoadKm:1.5,distanceToPowerKm:6.0,distanceToWaterKm:1.6,distanceToElevatorKm:12,unusedSignal:false,unusedConfidence:15,marketDeltaPct:-10,geometry:[[52.66,36.40],[52.71,36.48],[52.65,36.56],[52.59,36.49],[52.61,36.41]]},
+  {id:212,title:'Участок #212',district:'Залегощенский',areaHa:39,priceRub:6200000,landType:'пастбище',vri:'выпас',category:'земли с/х',riskLevel:'med',riskFactors:['слабая почва','подъезд через грунт'],hasDocs:true,isAuction:false,soilScore:'low',agroPotential:'low',distanceToRoadKm:5.4,distanceToPowerKm:10.6,distanceToWaterKm:2.7,distanceToElevatorKm:22,unusedSignal:false,unusedConfidence:35,marketDeltaPct:-3,geometry:[[52.50,36.78],[52.54,36.87],[52.48,36.93],[52.42,36.86],[52.45,36.78]]}
+];
+lots.forEach(l=>l.pricePerHaRub=Math.round(l.priceRub/l.areaHa));
+const parcels = {
+  type:'FeatureCollection',
+  features: lots.map(l => ({
+    type:'Feature',
+    properties:{id:l.id},
+    geometry:{
+      type:'Polygon',
+      coordinates:[[...l.geometry.map(p=>[p[1],p[0]]), [l.geometry[0][1], l.geometry[0][0]]]]
+    }
+  }))
+};
+
+const poiLayerData = {type:'FeatureCollection',features:[
+  {type:'Feature',properties:{name:'Элеватор Орёл'},geometry:{type:'Point',coordinates:[36.08,52.96]}},
+  {type:'Feature',properties:{name:'Подстанция 110кВ'},geometry:{type:'Point',coordinates:[36.29,53.20]}},
+  {type:'Feature',properties:{name:'Мелькомбинат'},geometry:{type:'Point',coordinates:[37.13,52.58]}},
+  {type:'Feature',properties:{name:'Элеватор Ливны'},geometry:{type:'Point',coordinates:[37.18,52.52]}},
+  {type:'Feature',properties:{name:'Подстанция 220кВ'},geometry:{type:'Point',coordinates:[35.88,52.78]}},
+  {type:'Feature',properties:{name:'Завод комбикорм'},geometry:{type:'Point',coordinates:[36.52,52.88]}}
+]};
+const infraLinesData = {type:'FeatureCollection',features:[
+  {type:'Feature',properties:{name:'Трасса R-120'},geometry:{type:'LineString',coordinates:[[35.0,52.7],[36.2,52.95],[37.4,53.25]]}},
+  {type:'Feature',properties:{name:'ЛЭП Север'},geometry:{type:'LineString',coordinates:[[35.2,53.35],[36.0,53.05],[36.9,52.72],[37.5,52.45]]}},
+  {type:'Feature',properties:{name:'ЛЭП Юг'},geometry:{type:'LineString',coordinates:[[34.9,52.45],[35.9,52.60],[37.0,52.55]]}}
+]};
+const waterData = {type:'FeatureCollection',features:[
+  {type:'Feature',properties:{name:'Река 1'},geometry:{type:'LineString',coordinates:[[35.1,53.3],[35.9,53.0],[36.6,52.8],[37.2,52.6]]}},
+  {type:'Feature',properties:{name:'Водоём 1'},geometry:{type:'Polygon',coordinates:[[[36.62,53.02],[36.76,53.01],[36.79,52.93],[36.67,52.90],[36.60,52.96],[36.62,53.02]]]}}
+]};
+const restrictionsData = {type:'FeatureCollection',features:[
+  {type:'Feature',properties:{name:'Санитарная зона'},geometry:{type:'Polygon',coordinates:[[[35.45,53.27],[35.75,53.23],[35.71,53.02],[35.40,53.03],[35.45,53.27]]] }},
+  {type:'Feature',properties:{name:'Охранная зона ЛЭП'},geometry:{type:'Polygon',coordinates:[[[36.82,52.74],[37.18,52.76],[37.21,52.56],[36.87,52.52],[36.82,52.74]]] }},
+  {type:'Feature',properties:{name:'Водоохранная зона'},geometry:{type:'Polygon',coordinates:[[[36.12,52.66],[36.44,52.68],[36.49,52.49],[36.17,52.44],[36.12,52.66]]] }}
+]};
+
+const layerDefs = [
+  {key:'cadastre',label:'Кадастр',enabled:true},
+  {key:'soil',label:'Почвы',enabled:false},
+  {key:'climate',label:'Климат',enabled:false,disabled:true},
+  {key:'relief',label:'Рельеф',enabled:false},
+  {key:'water',label:'Вода',enabled:false},
+  {key:'infra',label:'Инфраструктура',enabled:false},
+  {key:'restrictions',label:'Ограничения',enabled:false},
+  {key:'logistics',label:'Логистика',enabled:false,disabled:true}
+];
+
+const state = {
+  quick:new Set(), view:'list', selectedId:null, favorites:new Set(), compare:new Set(),
+  quickPrice:{min:null,max:null}, quickArea:{min:null,max:null},
+  adv:{priceMin:null,priceMax:null,areaMin:null,areaMax:null,types:[],risks:[],docs:false,auction:false,road:'any',power:'any',water:'any'},
+  layers:Object.fromEntries(layerDefs.map(l=>[l.key,l.enabled])),
+  deepTab:'data', history:[]
+};
+
+const fmtRub = n => new Intl.NumberFormat('ru-RU').format(n)+' ₽';
+const riskOrder = {low:0,med:1,high:2};
+const riskText = {low:'low',med:'med',high:'high'};
+const soilColors = {high:'#86efac',med:'#fcd34d',low:'#fca5a5'};
+let map, schemeLayer, satLayer, parcelLayer, poiLayer, infraLayer, waterLayer, restrictionsLayer;
+const layerById = {};
+
+function initMap(){
+  map = L.map('map',{zoomControl:true}).setView([52.95,36.2],8);
+  schemeLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors'});
+  satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles &copy; Esri'});
+  schemeLayer.addTo(map);
+
+  parcelLayer = L.geoJSON(parcels,{style:styleParcel,onEachFeature:(f,l)=>{layerById[f.properties.id]=l;l.on('click',()=>selectLot(f.properties.id,true));}}).addTo(map);
+  poiLayer = L.geoJSON(poiLayerData,{pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:6,color:'#6d28d9',fillColor:'#8b5cf6',fillOpacity:0.9}).bindTooltip(f.properties.name)});
+  infraLayer = L.geoJSON(infraLinesData,{style:{color:'#7c3aed',weight:3,dashArray:'8,6'}});
+  waterLayer = L.geoJSON(waterData,{style:{color:'#06b6d4',weight:3,fillColor:'#67e8f9',fillOpacity:0.25}});
+  restrictionsLayer = L.geoJSON(restrictionsData,{style:{color:'#ef4444',weight:2,fillColor:'#f87171',fillOpacity:0.20,dashArray:'4,4'}});
+}
+
+function styleParcel(feature){
+  const lot = lots.find(x=>x.id===feature.properties.id);
+  const selected = state.selectedId===lot.id;
+  const fill = state.layers.soil ? soilColors[lot.soilScore] : '#c4b5fd';
+  const opacity = state.layers.relief ? 0.88 : 0.72;
+  return {color: state.layers.cadastre ? (selected?'#6d28d9':'#4338ca') : 'transparent', weight:selected?4:2, fillColor:fill, fillOpacity:opacity, dashArray: state.layers.relief ? '5,5' : null};
+}
+
+function applyLayerToggles(){
+  parcelLayer.setStyle(styleParcel);
+  state.layers.infra ? (map.addLayer(poiLayer),map.addLayer(infraLayer)) : (map.removeLayer(poiLayer),map.removeLayer(infraLayer));
+  state.layers.water ? map.addLayer(waterLayer) : map.removeLayer(waterLayer);
+  state.layers.restrictions ? map.addLayer(restrictionsLayer) : map.removeLayer(restrictionsLayer);
+}
+
+function getFilteredLots(){
+  const res = lots.filter(l=>{
+    if (state.quick.has('type') && l.landType!=='пашня') return false;
+    if (state.quick.has('docs') && !l.hasDocs) return false;
+    if (state.quick.has('riskLow') && l.riskLevel!=='low') return false;
+    if (state.quick.has('auction') && !l.isAuction) return false;
+    if (state.quick.has('road') && l.distanceToRoadKm>2) return false;
+    if (state.quick.has('power') && l.distanceToPowerKm>10) return false;
+    if (state.quick.has('water') && l.distanceToWaterKm>3) return false;
+
+    if (state.quickPrice.min && l.priceRub<state.quickPrice.min) return false;
+    if (state.quickPrice.max && l.priceRub>state.quickPrice.max) return false;
+    if (state.quickArea.min && l.areaHa<state.quickArea.min) return false;
+    if (state.quickArea.max && l.areaHa>state.quickArea.max) return false;
+
+    const a=state.adv;
+    if (a.priceMin && l.priceRub<a.priceMin) return false;
+    if (a.priceMax && l.priceRub>a.priceMax) return false;
+    if (a.areaMin && l.areaHa<a.areaMin) return false;
+    if (a.areaMax && l.areaHa>a.areaMax) return false;
+    if (a.types.length && !a.types.includes(l.landType)) return false;
+    if (a.risks.length && !a.risks.includes(l.riskLevel)) return false;
+    if (a.docs && !l.hasDocs) return false;
+    if (a.auction && !l.isAuction) return false;
+    if (a.road!=='any' && l.distanceToRoadKm>=Number(a.road)) return false;
+    if (a.power!=='any' && l.distanceToPowerKm>=Number(a.power)) return false;
+    if (a.water!=='any' && l.distanceToWaterKm>=Number(a.water)) return false;
+    return true;
+  });
+  const sort=document.getElementById('sortSelect').value;
+  if(sort==='price')res.sort((a,b)=>a.priceRub-b.priceRub);
+  if(sort==='area')res.sort((a,b)=>b.areaHa-a.areaHa);
+  if(sort==='risk')res.sort((a,b)=>riskOrder[a.riskLevel]-riskOrder[b.riskLevel]);
+  return res;
+}
+
+function renderQuickChips(){
+  const row = document.getElementById('quickChips');
+  row.innerHTML = quickDefs.map(ch=>`
+    <div class="relative">
+      <button data-chip="${ch.key}" class="chip-btn whitespace-nowrap px-3 py-1.5 rounded-full border text-sm ${state.quick.has(ch.key)?'chip-active':'bg-white border-slate-300 hover:bg-primary-50'}">${ch.label}</button>
+      ${ch.popover?`<div id="pop-${ch.key}" class="hidden absolute left-0 top-full mt-2 p-2 rounded-xl border border-slate-200 bg-white shadow-soft z-[1002] w-52">
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <label>От<input id="${ch.key}-min" type="number" class="mt-1 w-full rounded border border-slate-300 px-2 py-1"></label>
+          <label>До<input id="${ch.key}-max" type="number" class="mt-1 w-full rounded border border-slate-300 px-2 py-1"></label>
+        </div>
+        <button data-pop-apply="${ch.key}" class="mt-2 w-full rounded bg-primary-600 text-white text-xs py-1">Применить</button>
+      </div>`:''}
+    </div>
+  `).join('') + '<button id="openFilters" class="ml-auto whitespace-nowrap px-3 py-1.5 rounded-full border border-primary-300 bg-primary-50 text-primary-700 text-sm">Фильтры</button>';
+
+  document.getElementById('price-min') && (document.getElementById('price-min').value = state.quickPrice.min||'');
+  document.getElementById('price-max') && (document.getElementById('price-max').value = state.quickPrice.max||'');
+  document.getElementById('area-min') && (document.getElementById('area-min').value = state.quickArea.min||'');
+  document.getElementById('area-max') && (document.getElementById('area-max').value = state.quickArea.max||'');
+}
+
+function renderLayersPopover(){
+  document.getElementById('layersList').innerHTML = layerDefs.map(l=>`
+    <label class="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-slate-50 ${l.disabled?'opacity-60':''}">
+      <span>${l.label}${l.disabled?'<span class="ml-1 text-[10px] text-slate-500">в разработке</span>':''}</span>
+      <input data-layer="${l.key}" type="checkbox" class="layer-toggle" ${state.layers[l.key]?'checked':''} ${l.disabled?'disabled':''}>
+    </label>
+  `).join('');
+}
+
+function renderLots(){
+  const filtered = getFilteredLots();
+  const wrap = document.getElementById('lotsWrap');
+  document.getElementById('foundCount').textContent = `Найдено: ${filtered.length}`;
+  wrap.className = state.view==='grid' ? 'p-3 overflow-auto grid grid-cols-1 xl:grid-cols-2 gap-3' : 'p-3 overflow-auto space-y-3';
+  wrap.innerHTML = filtered.map((l,i)=>{
+    const selected = l.id===state.selectedId;
+    const fav = state.favorites.has(l.id);
+    const cmp = state.compare.has(l.id);
+    const pre=['bg-violet-100','bg-purple-100','bg-indigo-100'][i%3];
+    return `<article data-id="${l.id}" class="lot-card cursor-pointer border rounded-xl p-3 ${selected?'border-primary-500 ring-2 ring-primary-100 bg-primary-50/40':'border-slate-200 hover:border-primary-300'}">
+      <div class="${state.view==='grid'?'':'sm:flex sm:gap-3'}">
+        <div class="${state.view==='grid'?'h-28 mb-3':'h-24 sm:h-24 sm:w-36 mb-3 sm:mb-0'} rounded-lg ${pre} grid place-items-center text-xs text-slate-500">preview</div>
+        <div class="flex-1">
+          <h3 class="font-semibold text-sm sm:text-base">${l.title}</h3>
+          <p class="text-lg font-bold">${fmtRub(l.priceRub)}</p>
+          <p class="text-sm text-slate-600">${fmtRub(l.pricePerHaRub)}/га · ${l.areaHa} га</p>
+          <p class="text-xs text-slate-500">${l.district} р-н · ${l.landType}</p>
+          <div class="mt-2 flex flex-wrap gap-1.5">${l.riskLevel==='low'?'<span class="badge">Низкий риск</span>':''}${l.hasDocs?'<span class="badge">Документы</span>':''}${l.isAuction?'<span class="badge">Торги</span>':''}</div>
+          <p class="mt-2 text-xs">Агропотенциал: <b>${l.agroPotential}</b> · Риск: <b>${l.riskLevel}</b></p>
+        </div>
+      </div>
+      <div class="mt-3 pt-2 border-t border-slate-200 flex gap-2">
+        <button data-action="fav" data-id="${l.id}" class="card-action px-2.5 py-1.5 rounded-lg border text-xs ${fav?'bg-primary-100 border-primary-400 text-primary-700':'border-slate-300'}">${fav?'♥ В избранном':'♡ Избранное'}</button>
+        <button data-action="cmp" data-id="${l.id}" class="card-action px-2.5 py-1.5 rounded-lg border text-xs ${cmp?'bg-primary-100 border-primary-400 text-primary-700':'border-slate-300'}">${cmp?'✓ Сравнить':'Сравнить'}</button>
+        <a href="#" class="ml-auto text-xs text-primary-700">Подробнее</a>
+      </div>
+    </article>`;
+  }).join('') || '<p class="text-sm text-slate-500 text-center p-8">Нет участков по условиям фильтра</p>';
+}
+
+function updateMapVisibility(){
+  const ids = new Set(getFilteredLots().map(l=>l.id));
+  Object.entries(layerById).forEach(([id,layer])=>{
+    if(ids.has(Number(id))) { if(!map.hasLayer(layer)) layer.addTo(map); }
+    else if(map.hasLayer(layer)) map.removeLayer(layer);
+  });
+  parcelLayer.setStyle(styleParcel);
+  if (state.selectedId && !ids.has(state.selectedId)) clearSelection();
+}
+
+function selectLot(id,fromMap=false){
+  const lot = lots.find(x=>x.id===id); if(!lot) return;
+  state.selectedId = id;
+  parcelLayer.setStyle(styleParcel);
+  const l = layerById[id]; if(l){ map.fitBounds(l.getBounds(),{padding:[30,30]}); }
+  document.getElementById('miniTitle').textContent = `Участок #${lot.id} — ${lot.district}`;
+  document.getElementById('miniMeta').textContent = `${fmtRub(lot.priceRub)} · ${lot.areaHa} га · риск: ${lot.riskLevel}`;
+  document.getElementById('miniCard').classList.remove('hidden');
+  renderLots();
+}
+function clearSelection(){ state.selectedId=null; parcelLayer.setStyle(styleParcel); document.getElementById('miniCard').classList.add('hidden'); renderLots(); }
+
+function openDrawer(open){
+  document.getElementById('overlay').classList.toggle('hidden',!open);
+  const d=document.getElementById('filtersDrawer');
+  if(window.innerWidth>=768){d.classList.toggle('md:translate-x-full',!open);d.classList.toggle('md:translate-x-0',open);}else{d.classList.toggle('translate-y-full',!open);d.classList.toggle('translate-y-0',open);}
+}
+function openDeep(open){
+  document.getElementById('overlay').classList.toggle('hidden',!open);
+  document.getElementById('deepPanel').classList.toggle('translate-x-full',!open);
+}
+
+function scoreOf(l){
+  let s=50;
+  if(l.riskLevel==='low')s+=18; if(l.riskLevel==='high')s-=18;
+  if(l.hasDocs)s+=8; else s-=7;
+  if(l.soilScore==='high')s+=12; if(l.soilScore==='low')s-=10;
+  s += Math.max(-10,Math.min(10, Math.round((-l.marketDeltaPct)/2)));
+  s += l.distanceToRoadKm<=2?6:(l.distanceToRoadKm>5?-5:0);
+  s -= l.unusedSignal?8:0;
+  return Math.max(0,Math.min(100,s));
+}
+
+function statusBadge(v){
+  const c=v==='OK'?'status-ok':v==='PARTIAL'?'status-partial':'status-unknown';
+  return `<span class="text-[10px] px-2 py-0.5 rounded-full ${c}">${v}</span>`;
+}
+
+function renderDeep(lot){
+  const deepData=document.getElementById('deepDataTab');
+  const deepScore=document.getElementById('deepScoreTab');
+  const cadastral=`57:${String(lot.id).slice(0,2)}:${String(lot.id).slice(2)}:${100+lot.id}`;
+  const restrictions = lot.riskLevel==='low'?[]:lot.riskLevel==='med'?['охранная зона ЛЭП']:['подтопление','санитарная зона'];
+  const redFlags = [lot.hasDocs?null:'Неполный пакет документов', lot.unusedSignal?'Признаки неиспользования':null, lot.riskLevel==='high'?'Высокий риск':null].filter(Boolean);
+  const score = scoreOf(lot);
+  const light = score>=75?'зелёный':score>=55?'жёлтый':'красный';
+
+  const rows = [
+    ['Кадастровый номер',cadastral,'OK'],['Площадь',`${lot.areaHa} га`,'OK'],['Категория/ВРИ',`${lot.category}, ${lot.vri}`,'OK'],['Кадастровая стоимость',fmtRub(Math.round(lot.priceRub*0.68)),'PARTIAL'],['Дата обновления','14.01.2026','OK'],
+    ['Тип правообладателя',lot.id%3===0?'юрлицо':'физлицо','PARTIAL'],['Тип права','собственность','OK'],['Долевой признак',lot.id%4===0?'да':'нет',lot.id%4===0?'PARTIAL':'OK'],
+    ['Ограничения',restrictions.length?restrictions.join('; '):'нет',restrictions.length?'PARTIAL':'OK'],
+    ['Торги',lot.isAuction?'да, активно':'нет',lot.isAuction?'OK':'UNKNOWN'],
+    ['Банкротство/арбитраж/ФССП',lot.riskLevel==='high'?'да/да/нет':'нет/нет/нет',lot.riskLevel==='high'?'PARTIAL':'OK'],
+    ['Признаки использования',`${lot.unusedSignal?'да':'нет'} (${lot.unusedConfidence}%)`,'PARTIAL'],
+    ['NDVI trend',lot.unusedSignal?'негативный':'стабильный',lot.unusedSignal?'PARTIAL':'OK'],
+    ['Инфраструктура',`дорога ${lot.distanceToRoadKm}км · ЛЭП ${lot.distanceToPowerKm}км · вода ${lot.distanceToWaterKm}км · элеватор ${lot.distanceToElevatorKm}км`,'OK'],
+    ['Документы продавца',lot.hasDocs?'Выписка ЕГРН, Схема, Фото':'Частичный пакет',lot.hasDocs?'OK':'PARTIAL']
+  ];
+  deepData.innerHTML = rows.map((r,i)=>`<details class="border border-slate-200 rounded-lg p-2" ${i<2?'open':''}><summary class="cursor-pointer text-sm font-medium">${r[0]}</summary><div class="mt-2 text-sm flex items-center justify-between gap-2"><span>${r[1]}</span>${statusBadge(r[2])}</div></details>`).join('');
+
+  const mini=[['Legal Risk',100-(lot.riskLevel==='high'?65:lot.riskLevel==='med'?45:20)],['Deal Complexity',lot.hasDocs?78:52],['Agro Suitability',lot.agroPotential==='high'?88:lot.agroPotential==='med'?66:41],['Liquidity',Math.max(35,85+lot.marketDeltaPct)]];
+  deepScore.innerHTML = `
+    <div class="rounded-xl border border-slate-200 p-3 bg-slate-50">
+      <p class="text-sm">AgroZver Score</p>
+      <div class="mt-2 h-3 rounded-full bg-slate-200 overflow-hidden"><div class="h-full bg-primary-600" style="width:${score}%"></div></div>
+      <p class="mt-2 text-sm font-semibold">${score}/100 · ${light}</p>
+    </div>
+    <div class="grid grid-cols-2 gap-2">${mini.map(m=>`<div class="rounded-lg border border-slate-200 p-2"><p class="text-xs text-slate-500">${m[0]}</p><p class="text-base font-semibold">${m[1]}</p></div>`).join('')}</div>
+    <div class="rounded-lg border border-slate-200 p-3"><p class="font-semibold text-sm">Red flags: ${redFlags.length}</p><ul class="list-disc pl-5 text-sm mt-1">${(redFlags.length?redFlags:['нет критичных']).map(x=>`<li>${x}</li>`).join('')}</ul></div>
+    <div class="rounded-lg border border-slate-200 p-3"><p class="font-semibold text-sm">Почему так</p><ul class="list-disc pl-5 text-sm mt-1">${lot.riskFactors.concat([`Отклонение от рынка ${lot.marketDeltaPct}%`,`distance to road ${lot.distanceToRoadKm}км`,`soil ${lot.soilScore}`]).slice(0,8).map(x=>`<li>${x}</li>`).join('')}</ul></div>
+    <div class="rounded-lg border border-slate-200 p-3"><p class="font-semibold text-sm">Рекомендации</p><ul class="list-disc pl-5 text-sm mt-1"><li>Запросить свежую выписку ЕГРН</li><li>Проверить ограничения по зонам</li><li>Сделать выездную агрооценку на месте</li></ul></div>
+    <div class="flex gap-2"><button id="downloadDeep" class="flex-1 rounded-lg bg-primary-600 text-white py-2 text-sm">Скачать PDF</button><button id="saveDeep" class="flex-1 rounded-lg border border-slate-300 py-2 text-sm">Сохранить проверку</button></div>
+  `;
+}
+
+function updateHistory(){
+  document.getElementById('historyList').innerHTML = state.history.length
+    ? state.history.slice(-5).reverse().map(h=>`<li>• #${h.id}, ${h.district}, ${h.time}, score ${h.score}</li>`).join('')
+    : '<li>Пока пусто</li>';
+}
+
+function runDeepCheck(){
+  const lot = lots.find(x=>x.id===state.selectedId); if(!lot) return;
+  openDeep(true);
+  const loading=document.getElementById('deepLoading'),content=document.getElementById('deepContent'),bar=document.getElementById('deepBar');
+  content.classList.add('hidden'); loading.classList.remove('hidden'); bar.style.width='8%';
+  setTimeout(()=>bar.style.width='38%',700); setTimeout(()=>bar.style.width='69%',1500);
+  setTimeout(()=>{bar.style.width='100%'; loading.classList.add('hidden'); content.classList.remove('hidden'); renderDeep(lot);},2400);
+}
+
+function refresh(){ renderQuickChips(); renderLots(); updateMapVisibility(); applyLayerToggles(); updateHistory(); }
+
+document.addEventListener('click',(e)=>{
+  const chip=e.target.closest('[data-chip]');
+  if(chip){
+    const key=chip.dataset.chip;
+    if(key==='price'||key==='area'){ document.getElementById(`pop-${key}`).classList.toggle('hidden'); return; }
+    state.quick.has(key)?state.quick.delete(key):state.quick.add(key); refresh(); return;
+  }
+
+  const popApply=e.target.closest('[data-pop-apply]');
+  if(popApply){
+    const k=popApply.dataset.popApply;
+    if(k==='price'){state.quickPrice.min=Number(document.getElementById('price-min').value)||null;state.quickPrice.max=Number(document.getElementById('price-max').value)||null;}
+    if(k==='area'){state.quickArea.min=Number(document.getElementById('area-min').value)||null;state.quickArea.max=Number(document.getElementById('area-max').value)||null;}
+    state.quick.add(k); document.getElementById(`pop-${k}`).classList.add('hidden'); refresh(); return;
+  }
+
+  if(e.target.id==='openFilters'){openDrawer(true);return;}
+  if(e.target.id==='closeDrawer'){openDrawer(false);return;}
+  if(e.target.id==='overlay'){openDrawer(false);openDeep(false);return;}
+  if(e.target.id==='applyFilters'){
+    state.adv={priceMin:Number(fPriceMin.value)||null,priceMax:Number(fPriceMax.value)||null,areaMin:Number(fAreaMin.value)||null,areaMax:Number(fAreaMax.value)||null,
+      types:[...document.querySelectorAll('.fType:checked')].map(i=>i.value),risks:[...document.querySelectorAll('.fRisk:checked')].map(i=>i.value),docs:fDocs.checked,auction:fAuction.checked,road:fRoad.value,power:fPower.value,water:fWater.value};
+    openDrawer(false); refresh(); return;
+  }
+  if(e.target.id==='resetFilters'){
+    ['fPriceMin','fPriceMax','fAreaMin','fAreaMax'].forEach(id=>document.getElementById(id).value='');
+    document.querySelectorAll('.fType,.fRisk').forEach(i=>i.checked=false); fDocs.checked=fAuction.checked=false; fRoad.value=fPower.value=fWater.value='any';
+    state.adv={priceMin:null,priceMax:null,areaMin:null,areaMax:null,types:[],risks:[],docs:false,auction:false,road:'any',power:'any',water:'any'}; refresh(); return;
+  }
+
+  const lotCard=e.target.closest('.lot-card'); if(lotCard){ selectLot(Number(lotCard.dataset.id)); return; }
+  const action=e.target.closest('.card-action'); if(action){
+    const id=Number(action.dataset.id);
+    if(action.dataset.action==='fav') state.favorites.has(id)?state.favorites.delete(id):state.favorites.add(id);
+    if(action.dataset.action==='cmp') state.compare.has(id)?state.compare.delete(id):state.compare.add(id);
+    renderLots(); return;
+  }
+
+  const viewBtn=e.target.closest('.view-btn'); if(viewBtn){
+    state.view=viewBtn.dataset.view;
+    document.querySelectorAll('.view-btn').forEach(b=>{const on=b.dataset.view===state.view;b.classList.toggle('bg-white',on);b.classList.toggle('shadow',on);b.classList.toggle('text-slate-600',!on);});
+    renderLots(); return;
+  }
+
+  const base=e.target.closest('.basemap-btn'); if(base){
+    const mode=base.dataset.basemap;
+    if(mode==='scheme'){map.removeLayer(satLayer);map.addLayer(schemeLayer);} else {map.removeLayer(schemeLayer);map.addLayer(satLayer);}
+    document.querySelectorAll('.basemap-btn').forEach(b=>{const on=b.dataset.basemap===mode;b.classList.toggle('bg-white',on);b.classList.toggle('shadow',on);b.classList.toggle('text-slate-600',!on);});
+    return;
+  }
+
+  if(e.target.id==='layersBtn'){layersPopover.classList.toggle('hidden');return;}
+  if(!e.target.closest('#layersPopover')) layersPopover.classList.add('hidden');
+
+  if(e.target.classList.contains('layer-toggle')){ state.layers[e.target.dataset.layer]=e.target.checked; applyLayerToggles(); parcelLayer.setStyle(styleParcel); return; }
+
+  if(e.target.id==='clearSelection'){clearSelection();return;}
+  if(e.target.id==='openDeepCheck'){runDeepCheck();return;}
+  if(e.target.id==='closeDeep'){openDeep(false);return;}
+
+  const tab=e.target.closest('[data-deep-tab]'); if(tab){
+    state.deepTab=tab.dataset.deepTab;
+    document.querySelectorAll('.deep-tab').forEach(b=>{const on=b.dataset.deepTab===state.deepTab;b.classList.toggle('bg-white',on);b.classList.toggle('shadow',on);b.classList.toggle('text-slate-600',!on);});
+    deepDataTab.classList.toggle('hidden',state.deepTab!=='data'); deepScoreTab.classList.toggle('hidden',state.deepTab!=='score'); return;
+  }
+
+  if(e.target.id==='downloadDeep'){
+    const lot=lots.find(x=>x.id===state.selectedId); const text=`AgroZver DeepCheck\nID: ${lot.id}\nРайон: ${lot.district}\nScore: ${scoreOf(lot)}\nДата: ${new Date().toLocaleString('ru-RU')}`;
+    const blob=new Blob([text],{type:'text/plain'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`AgroZver_DeepCheck_${lot.id}.txt`; a.click(); URL.revokeObjectURL(url); return;
+  }
+  if(e.target.id==='saveDeep'){
+    const lot=lots.find(x=>x.id===state.selectedId); state.history.push({id:lot.id,district:lot.district,time:new Date().toLocaleTimeString('ru-RU'),score:scoreOf(lot)}); updateHistory(); return;
+  }
+
+  const mtab=e.target.closest('.mobile-tab'); if(mtab){
+    const mode=mtab.dataset.mobileTab;
+    document.querySelectorAll('.mobile-tab').forEach(b=>{const on=b.dataset.mobileTab===mode;b.classList.toggle('bg-primary-600',on);b.classList.toggle('text-white',on);b.classList.toggle('bg-white',!on);b.classList.toggle('border',!on);b.classList.toggle('border-slate-300',!on);});
+    mapPane.classList.toggle('hidden',mode!=='map'); listPane.classList.toggle('hidden',mode!=='list');
+    setTimeout(()=>map.invalidateSize(),80);
+  }
+});
+
+document.getElementById('sortSelect').addEventListener('change',refresh);
+window.addEventListener('resize',()=>map && map.invalidateSize());
+
+initMap();
+renderLayersPopover();
+refresh();
+</script>
+</body>
+</html>
